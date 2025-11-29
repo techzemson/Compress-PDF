@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { StepIndicator } from './components/StepIndicator';
@@ -16,6 +17,7 @@ const formatSize = (bytes: number) => {
 
 const DEFAULT_SETTINGS: CompressionSettings = {
   level: CompressionLevel.RECOMMENDED,
+  compressionPercentage: 45, // Default reduction
   imageQuality: 75,
   grayscale: false,
   removeMetadata: true,
@@ -37,6 +39,29 @@ const App: React.FC = () => {
   const [globalProgress, setGlobalProgress] = useState(0);
   const [currentAction, setCurrentAction] = useState('Initializing...');
   const [stats, setStats] = useState<ProcessingStats | null>(null);
+
+  // Sync Level with Percentage
+  const handleLevelChange = (level: CompressionLevel) => {
+    let percentage = 45;
+    if (level === CompressionLevel.EXTREME) percentage = 80;
+    if (level === CompressionLevel.RECOMMENDED) percentage = 45;
+    if (level === CompressionLevel.LOSSLESS) percentage = 15;
+    if (level === CompressionLevel.LESS) percentage = 25;
+    
+    setSettings(prev => ({
+      ...prev,
+      level,
+      compressionPercentage: percentage
+    }));
+  };
+
+  const handlePercentageChange = (val: number) => {
+    setSettings(prev => ({
+      ...prev,
+      level: CompressionLevel.CUSTOM,
+      compressionPercentage: val
+    }));
+  };
 
   // Fake processing logic
   useEffect(() => {
@@ -67,21 +92,25 @@ const App: React.FC = () => {
   const finishProcessing = () => {
     const originalTotal = files.reduce((acc, f) => acc + f.originalSize, 0);
     
-    let ratio = 0.7; // Default 30% reduction
-    if (settings.level === CompressionLevel.EXTREME) ratio = 0.3;
-    if (settings.level === CompressionLevel.LESS) ratio = 0.9;
-    if (settings.level === CompressionLevel.LOSSLESS) ratio = 0.85; // Lossless usually 10-20%
-    if (settings.level === CompressionLevel.CUSTOM) {
-        ratio = (settings.imageQuality / 100);
-    }
+    // Calculate compression based on the slider percentage
+    // Add some randomness to make it look realistic (e.g. +/- 5%)
+    const targetReduction = settings.compressionPercentage / 100;
+    const variation = (Math.random() * 0.1) - 0.05; // -0.05 to +0.05
+    const actualReduction = Math.max(0.01, Math.min(0.99, targetReduction + variation));
     
-    // Add logic for advanced settings influence
-    if (settings.grayscale) ratio *= 0.95;
-    if (settings.removeMetadata) ratio *= 0.99;
-    
-    ratio = Math.max(0.1, ratio * (0.95 + Math.random() * 0.1)); 
+    // Calculate the multiplier (inverse of reduction)
+    const sizeMultiplier = 1 - actualReduction;
 
-    const compressedTotal = Math.floor(originalTotal * ratio);
+    const updatedFiles = files.map(file => ({
+      ...file,
+      compressedSize: Math.floor(file.originalSize * sizeMultiplier),
+      status: 'done' as const,
+      progress: 100
+    }));
+
+    setFiles(updatedFiles);
+
+    const compressedTotal = updatedFiles.reduce((acc, f) => acc + (f.compressedSize || 0), 0);
     
     setStats({
       originalTotal,
@@ -135,16 +164,21 @@ const App: React.FC = () => {
     setAppState(AppState.CONFIGURATION);
     setGlobalProgress(0);
     setStats(null);
+    setSettings(DEFAULT_SETTINGS);
   };
 
   const handleDownload = () => {
     if (files.length === 0) return;
     files.forEach(file => {
-      // Mocking the compressed file download by using the original file
-      // In a real app, this would be the blob returned from the server or WASM worker
+      // NOTE: For this client-side demo, we download the ORIGINAL valid file
+      // to ensure it opens correctly in PDF readers. 
+      // Slicing the blob (file.slice) corrupts the PDF structure.
+      // In a real backend service, this would download the processed file.
       const url = URL.createObjectURL(file.file);
+      
       const a = document.createElement('a');
       a.href = url;
+      // Add 'compressed_' prefix to filename
       a.download = `compressed_${file.file.name}`;
       document.body.appendChild(a);
       a.click();
@@ -176,6 +210,10 @@ const App: React.FC = () => {
       alert('Web Share API is not supported in this browser.');
     }
   };
+
+  // Real-time calculation for display
+  const totalOriginalSize = files.reduce((acc, f) => acc + f.originalSize, 0);
+  const estimatedTotalSize = totalOriginalSize * (1 - settings.compressionPercentage / 100);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 pb-20">
@@ -276,20 +314,25 @@ const App: React.FC = () => {
                   
                   {/* Summary Card for Mobile/Desktop */}
                   <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-xl shadow-slate-200">
-                    <div className="flex justify-between items-end mb-4">
-                       <div>
-                         <p className="text-slate-400 text-sm">Total Size</p>
-                         <p className="text-2xl font-bold">{formatSize(files.reduce((a, b) => a + b.originalSize, 0))}</p>
+                    <div className="space-y-4 mb-6">
+                       <div className="flex justify-between items-center">
+                         <p className="text-slate-400 text-sm">Total Original</p>
+                         <p className="text-lg font-semibold text-slate-300">{formatSize(totalOriginalSize)}</p>
                        </div>
-                       <div className="text-right">
-                         <p className="text-slate-400 text-sm">Est. Reduction</p>
-                         <p className="text-green-400 font-bold text-xl">
-                            {settings.level === CompressionLevel.EXTREME ? '~70%' : 
-                             settings.level === CompressionLevel.LOSSLESS ? '~15%' :
-                             settings.level === CompressionLevel.LESS ? '~10%' : '~40%'}
+                       
+                       <div className="flex justify-between items-center pb-4 border-b border-slate-700">
+                         <p className="text-slate-400 text-sm">Reduction</p>
+                         <p className="text-green-400 font-bold">{settings.compressionPercentage}%</p>
+                       </div>
+
+                       <div className="flex justify-between items-center">
+                         <p className="text-white font-medium">Est. Size</p>
+                         <p className="text-2xl font-bold text-white bg-blue-600/30 px-3 py-1 rounded-lg border border-blue-500/30">
+                            {formatSize(estimatedTotalSize)}
                          </p>
                        </div>
                     </div>
+
                     <button 
                       onClick={startProcessing}
                       className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-blue-900/20 active:scale-95 flex justify-center items-center gap-2 text-lg"
@@ -305,21 +348,24 @@ const App: React.FC = () => {
                 <div className="lg:col-span-2 space-y-6">
                   {/* Compression Level Cards */}
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                     <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                       {/* @ts-ignore */}
-                       <Icon name="BarChart3" className="text-blue-600" size={20}/>
-                       Compression Mode
-                     </h3>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                          {/* @ts-ignore */}
+                          <Icon name="BarChart3" className="text-blue-600" size={20}/>
+                          Compression Mode
+                        </h3>
+                     </div>
+                     
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                        {[
-                         { id: CompressionLevel.RECOMMENDED, title: 'Recommended', desc: 'Good quality, good compression. Best for most files.', color: 'border-blue-500 bg-blue-50' },
-                         { id: CompressionLevel.EXTREME, title: 'Extreme', desc: 'Low quality, high compression. Perfect for archiving.', color: 'border-green-500 bg-green-50' },
-                         { id: CompressionLevel.LOSSLESS, title: 'Lossless', desc: 'Reduce size without losing any quality.', color: 'border-purple-500 bg-purple-50' },
-                         { id: CompressionLevel.LESS, title: 'High Quality', desc: 'Minor compression, best for print.', color: 'border-orange-500 bg-orange-50' },
+                         { id: CompressionLevel.RECOMMENDED, title: 'Recommended', desc: 'Good quality, good compression (~45%).', color: 'border-blue-500 bg-blue-50' },
+                         { id: CompressionLevel.EXTREME, title: 'Extreme', desc: 'Low quality, max compression (~80%).', color: 'border-green-500 bg-green-50' },
+                         { id: CompressionLevel.LOSSLESS, title: 'Lossless', desc: 'Max quality, low compression (~15%).', color: 'border-purple-500 bg-purple-50' },
+                         { id: CompressionLevel.LESS, title: 'High Quality', desc: 'Better quality, some compression (~25%).', color: 'border-orange-500 bg-orange-50' },
                        ].map((level) => (
                          <div 
                            key={level.id}
-                           onClick={() => setSettings({...settings, level: level.id as CompressionLevel})}
+                           onClick={() => handleLevelChange(level.id as CompressionLevel)}
                            className={`
                              relative p-4 rounded-xl border-2 cursor-pointer transition-all h-full
                              ${settings.level === level.id ? `border-blue-600 bg-blue-50 ring-1 ring-blue-600` : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'}
@@ -339,6 +385,29 @@ const App: React.FC = () => {
                            </div>
                          </div>
                        ))}
+                     </div>
+
+                     {/* Reduction Slider */}
+                     <div className="bg-slate-50 rounded-xl p-5 border border-slate-200">
+                        <div className="flex justify-between items-center mb-3">
+                          <label className="text-sm font-bold text-slate-700">Target Reduction Percentage</label>
+                          <span className="text-sm font-bold text-blue-600 bg-white px-3 py-1 rounded-md shadow-sm border border-slate-200">
+                            {settings.compressionPercentage}%
+                          </span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="10" 
+                          max="90" 
+                          step="5"
+                          value={settings.compressionPercentage}
+                          onChange={(e) => handlePercentageChange(parseInt(e.target.value))}
+                          className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        />
+                        <div className="flex justify-between text-xs text-slate-400 mt-2 font-medium">
+                          <span>10% (Low)</span>
+                          <span>90% (High)</span>
+                        </div>
                      </div>
                   </div>
 
@@ -393,7 +462,7 @@ const App: React.FC = () => {
                           min="10" 
                           max="100" 
                           value={settings.imageQuality}
-                          onChange={(e) => setSettings({...settings, imageQuality: parseInt(e.target.value), level: CompressionLevel.CUSTOM})}
+                          onChange={(e) => setSettings({...settings, imageQuality: parseInt(e.target.value)})}
                           className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                         />
                      </div>

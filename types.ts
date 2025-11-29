@@ -1,3 +1,4 @@
+
 export enum AppState {
   CONFIGURATION = 'CONFIGURATION',
   PROCESSING = 'PROCESSING',
@@ -20,10 +21,12 @@ export interface PDFFile {
   status: 'pending' | 'processing' | 'done' | 'error';
   progress: number;
   compressedSize?: number;
+  estimatedSize?: number;
 }
 
 export interface CompressionSettings {
   level: CompressionLevel;
+  compressionPercentage: number; // 0-100 target reduction
   imageQuality: number; // 0-100
   grayscale: boolean;
   removeMetadata: boolean;
