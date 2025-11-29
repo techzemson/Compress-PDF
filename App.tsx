@@ -5,6 +5,7 @@ import { StepIndicator } from './components/StepIndicator';
 import { Icon } from './components/Icon';
 import { ResultCharts } from './components/Charts';
 import { AppState, CompressionLevel, CompressionSettings, PDFFile, ProcessingStats } from './types';
+import { PDFDocument } from 'pdf-lib';
 
 // Helper to format bytes
 const formatSize = (bytes: number) => {
@@ -17,7 +18,7 @@ const formatSize = (bytes: number) => {
 
 const DEFAULT_SETTINGS: CompressionSettings = {
   level: CompressionLevel.RECOMMENDED,
-  compressionPercentage: 45, // Default reduction
+  compressionPercentage: 45, // Target reduction (used for visual target only now)
   imageQuality: 75,
   grayscale: false,
   removeMetadata: true,
@@ -63,61 +64,104 @@ const App: React.FC = () => {
     }));
   };
 
-  // Fake processing logic
+  // Actual Processing Logic
   useEffect(() => {
     if (appState === AppState.PROCESSING) {
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress += Math.random() * 2;
-        if (progress > 100) progress = 100;
-        
-        setGlobalProgress(progress);
-        
-        if (progress < 20) setCurrentAction('Analyzing PDF structure...');
-        else if (progress < 40) setCurrentAction('Optimizing images and resources...');
-        else if (progress < 60) setCurrentAction('Subsetting fonts and stripping metadata...');
-        else if (progress < 80) setCurrentAction('Rebuilding PDF file...');
-        else setCurrentAction('Finalizing compression...');
-
-        if (progress >= 100) {
-          clearInterval(interval);
-          finishProcessing();
-        }
-      }, 60); 
-
-      return () => clearInterval(interval);
+      processFiles();
     }
   }, [appState]);
 
-  const finishProcessing = () => {
-    const originalTotal = files.reduce((acc, f) => acc + f.originalSize, 0);
+  const processFiles = async () => {
+    setGlobalProgress(10);
+    setCurrentAction('Loading PDF engine...');
     
-    // Calculate compression based on the slider percentage
-    const targetReduction = settings.compressionPercentage / 100;
-    // No random variation for consistency with user request
-    const actualReduction = targetReduction; 
-    
-    const sizeMultiplier = 1 - actualReduction;
+    const startTime = Date.now();
+    let processedCount = 0;
+    const totalFiles = files.length;
+    const newFiles: PDFFile[] = [];
 
-    const updatedFiles = files.map(file => ({
-      ...file,
-      compressedSize: Math.floor(file.originalSize * sizeMultiplier),
-      status: 'done' as const,
-      progress: 100
-    }));
+    for (const fileObj of files) {
+      setCurrentAction(`Processing ${fileObj.file.name}...`);
+      
+      try {
+        // Read file
+        const arrayBuffer = await fileObj.file.arrayBuffer();
+        
+        // Load PDF document
+        const pdfDoc = await PDFDocument.load(arrayBuffer);
+        
+        // --- Apply Optimizations ---
+        
+        // 1. Metadata Removal
+        if (settings.removeMetadata) {
+          pdfDoc.setTitle('');
+          pdfDoc.setAuthor('');
+          pdfDoc.setSubject('');
+          pdfDoc.setKeywords([]);
+          pdfDoc.setProducer('');
+          pdfDoc.setCreator('');
+        }
 
-    setFiles(updatedFiles);
+        // 2. Note: pdf-lib doesn't support deep image compression (resampling) 
+        // without complex canvas logic. It primarily optimizes structure.
+        
+        // Save the PDF
+        // useObjectStreams: false can sometimes reduce size for simple docs, 
+        // but true is usually better for compression. Let's try to be smart.
+        const pdfBytes = await pdfDoc.save({ useObjectStreams: true });
+        
+        const compressedBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const compressedFile = new File([compressedBlob], fileObj.file.name, { 
+          type: 'application/pdf',
+          lastModified: Date.now()
+        });
 
-    const compressedTotal = updatedFiles.reduce((acc, f) => acc + (f.compressedSize || 0), 0);
-    
+        // Determine if we actually saved space
+        const isSmaller = compressedFile.size < fileObj.originalSize;
+        const finalFile = isSmaller ? compressedFile : fileObj.file;
+        const finalSize = finalFile.size;
+
+        newFiles.push({
+          ...fileObj,
+          file: finalFile, // Replace the file reference with the processed one
+          compressedSize: finalSize,
+          status: 'done',
+          progress: 100
+        });
+
+      } catch (error) {
+        console.error("Error processing PDF:", error);
+        // Fallback to original
+        newFiles.push({
+          ...fileObj,
+          compressedSize: fileObj.originalSize,
+          status: 'error',
+          progress: 100
+        });
+      }
+
+      processedCount++;
+      setGlobalProgress(10 + (processedCount / totalFiles) * 80);
+    }
+
+    setFiles(newFiles);
+    setGlobalProgress(100);
+    setCurrentAction('Finalizing...');
+
+    const originalTotal = newFiles.reduce((acc, f) => acc + f.originalSize, 0);
+    const compressedTotal = newFiles.reduce((acc, f) => acc + (f.compressedSize || f.originalSize), 0);
+    const timeTaken = (Date.now() - startTime) / 1000;
+
     setStats({
       originalTotal,
       compressedTotal,
-      percentageSaved: ((originalTotal - compressedTotal) / originalTotal) * 100,
-      timeTaken: 4.2 
+      percentageSaved: Math.max(0, ((originalTotal - compressedTotal) / originalTotal) * 100),
+      timeTaken
     });
 
-    setAppState(AppState.RESULT);
+    setTimeout(() => {
+      setAppState(AppState.RESULT);
+    }, 500);
   };
 
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -169,8 +213,6 @@ const App: React.FC = () => {
     if (files.length === 0) return;
     
     files.forEach(file => {
-      // Always download the original file content to ensure data integrity
-      // for this client-side demo.
       const url = URL.createObjectURL(file.file);
       const filename = `compressed_${file.file.name}`;
       
@@ -317,12 +359,12 @@ const App: React.FC = () => {
                        </div>
                        
                        <div className="flex justify-between items-center pb-4 border-b border-slate-700">
-                         <p className="text-slate-400 text-sm">Reduction</p>
+                         <p className="text-slate-400 text-sm">Target Reduction</p>
                          <p className="text-green-400 font-bold">{settings.compressionPercentage}%</p>
                        </div>
 
                        <div className="flex justify-between items-center">
-                         <p className="text-white font-medium">Est. Size</p>
+                         <p className="text-white font-medium">Est. Target Size</p>
                          <p className="text-2xl font-bold text-white bg-blue-600/30 px-3 py-1 rounded-lg border border-blue-500/30">
                             {formatSize(estimatedTotalSize)}
                          </p>
@@ -523,19 +565,29 @@ const App: React.FC = () => {
                {/* Left: Actions */}
                <div className="lg:col-span-1 space-y-6">
                   {/* Success Card */}
-                  <div className="bg-green-50 border border-green-200 rounded-2xl p-6 text-center relative overflow-hidden">
-                     <div className="inline-flex items-center justify-center w-12 h-12 bg-green-100 text-green-600 rounded-full mb-3">
+                  <div className={`
+                    border rounded-2xl p-6 text-center relative overflow-hidden
+                    ${stats.percentageSaved > 0 ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'}
+                  `}>
+                     <div className={`
+                       inline-flex items-center justify-center w-12 h-12 rounded-full mb-3
+                       ${stats.percentageSaved > 0 ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}
+                     `}>
                         {/* @ts-ignore */}
-                        <Icon name="Check" size={24} strokeWidth={3} />
+                        <Icon name={stats.percentageSaved > 0 ? "Check" : "AlertCircle"} size={24} strokeWidth={3} />
                      </div>
-                     <h2 className="text-xl font-bold text-slate-900 mb-1">Success!</h2>
+                     <h2 className="text-xl font-bold text-slate-900 mb-1">
+                        {stats.percentageSaved > 0 ? "Success!" : "Optimized"}
+                     </h2>
                      <p className="text-sm text-slate-600 mb-4">
-                        Your files are now smaller.
+                        {stats.percentageSaved > 0 ? "Your files are now smaller." : "File is already optimized."}
                      </p>
-                     <div className="bg-white/60 rounded-lg p-3 backdrop-blur-sm border border-green-100">
+                     <div className="bg-white/60 rounded-lg p-3 backdrop-blur-sm border border-slate-100">
                         <div className="flex justify-between items-center text-sm">
                            <span className="text-slate-500">Saved</span>
-                           <span className="font-bold text-green-700">{formatSize(stats.originalTotal - stats.compressedTotal)}</span>
+                           <span className={`font-bold ${stats.percentageSaved > 0 ? 'text-green-700' : 'text-slate-700'}`}>
+                             {formatSize(stats.originalTotal - stats.compressedTotal)}
+                           </span>
                         </div>
                      </div>
                   </div>
@@ -549,10 +601,10 @@ const App: React.FC = () => {
                      >
                         {/* @ts-ignore */}
                         <Icon name="Download" size={20} />
-                        Download Compressed PDF
+                        Download PDF
                      </button>
                      <p className="text-xs text-center text-slate-500 mt-2">
-                       Files are processed securely. Your content is preserved.
+                       Files are processed locally in your browser.
                      </p>
 
                      <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
@@ -572,6 +624,13 @@ const App: React.FC = () => {
                        </button>
                      </div>
                   </div>
+
+                  {stats.percentageSaved < 5 && (
+                     <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-slate-600 leading-relaxed">
+                        <p className="font-bold text-blue-800 mb-1">Note on Compression</p>
+                        Your file was already well-compressed. Client-side tools optimize structure and metadata. For deep image compression (50%+), server-side tools are typically required.
+                     </div>
+                  )}
                </div>
 
                {/* Right: Analytics */}
