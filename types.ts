@@ -1,6 +1,5 @@
 export enum AppState {
-  IDLE = 'IDLE',
-  SETTINGS = 'SETTINGS',
+  CONFIGURATION = 'CONFIGURATION',
   PROCESSING = 'PROCESSING',
   RESULT = 'RESULT',
 }
@@ -8,8 +7,9 @@ export enum AppState {
 export enum CompressionLevel {
   EXTREME = 'EXTREME',
   RECOMMENDED = 'RECOMMENDED',
-  LESS = 'LESS',
-  CUSTOM = 'CUSTOM'
+  LOSSLESS = 'LOSSLESS',
+  CUSTOM = 'CUSTOM',
+  LESS = 'LESS'
 }
 
 export interface PDFFile {
@@ -32,6 +32,11 @@ export interface CompressionSettings {
   removeAnnotations: boolean;
   downsampleImages: boolean;
   targetDPI: number;
+  // New advanced features
+  webOptimization: boolean;
+  removeBookmarks: boolean;
+  cleanContent: boolean;
+  removeThumbnails: boolean;
 }
 
 export interface ProcessingStats {
