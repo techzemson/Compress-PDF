@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { StepIndicator } from './components/StepIndicator';
 import { Icon } from './components/Icon';
 import { ResultCharts } from './components/Charts';
+import { Documentation } from './components/Documentation';
 import { AppState, CompressionLevel, CompressionSettings, PDFFile, ProcessingStats } from './types';
 import { PDFDocument } from 'pdf-lib';
 
@@ -255,10 +256,10 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 pb-20">
-      <Header />
+      <Header currentState={appState} onNavigate={setAppState} />
       
       <main className="flex-grow pt-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
-        {/* Title Section */}
+        {/* Title Section - Hide if Docs */}
         {appState === AppState.CONFIGURATION && (
           <div className="text-center mb-8">
             <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight mb-4">
@@ -271,7 +272,15 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <StepIndicator currentState={appState} />
+        {/* Step Indicator - Hide if Docs */}
+        {appState !== AppState.DOCUMENTATION && (
+           <StepIndicator currentState={appState} />
+        )}
+
+        {/* View: DOCUMENTATION */}
+        {appState === AppState.DOCUMENTATION && (
+           <Documentation />
+        )}
 
         {/* View: CONFIGURATION (Upload + Settings) */}
         {appState === AppState.CONFIGURATION && (

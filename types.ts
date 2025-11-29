@@ -3,6 +3,7 @@ export enum AppState {
   CONFIGURATION = 'CONFIGURATION',
   PROCESSING = 'PROCESSING',
   RESULT = 'RESULT',
+  DOCUMENTATION = 'DOCUMENTATION',
 }
 
 export enum CompressionLevel {
