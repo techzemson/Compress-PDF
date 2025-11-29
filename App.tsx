@@ -165,109 +165,14 @@ const App: React.FC = () => {
     setSettings(DEFAULT_SETTINGS);
   };
 
-  /**
-   * Generates a valid PDF with correct XREF table to ensure compatibility with all viewers.
-   */
-  const generatePlaceholderPDF = (originalName: string, targetSize: number): Blob => {
-    const objects: string[] = [];
-    const offsets: number[] = [];
-    
-    // Header
-    let pdfContent = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"; // Standard binary marker
-    
-    // Helper to add object and track offset
-    const addObject = (body: string) => {
-      offsets.push(pdfContent.length);
-      const objHeader = `${objects.length + 1} 0 obj\n`;
-      const objFooter = "\nendobj\n";
-      const fullObj = objHeader + body + objFooter;
-      pdfContent += fullObj;
-      objects.push(fullObj);
-    };
-
-    // --- Content Definition ---
-    const displayText = [
-      "COMPRESSED FILE VERIFICATION",
-      "",
-      `Original Filename: ${originalName}`,
-      `Target Size: ${formatSize(targetSize)}`,
-      "",
-      "This file demonstrates the exact file size reduction.",
-      "The content is a placeholder because client-side browsers",
-      "cannot securely re-compress PDF content without a backend.",
-      "",
-      "Use 'Download Original' to keep your original content."
-    ].join(") Tj T* (");
-
-    // 1. Catalog
-    addObject("<< /Type /Catalog /Pages 2 0 R >>");
-    
-    // 2. Pages
-    addObject("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
-    
-    // 3. Page
-    addObject("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>");
-    
-    // 4. Font
-    addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-    
-    // 5. Content Stream
-    const streamData = `BT /F1 12 Tf 50 750 Td 15 TL (${displayText}) Tj ET`;
-    addObject(`<< /Length ${streamData.length} >>\nstream\n${streamData}\nendstream`);
-
-    // --- XREF Table ---
-    const xrefOffset = pdfContent.length;
-    let xref = "xref\n";
-    xref += `0 ${objects.length + 1}\n`;
-    xref += "0000000000 65535 f \n"; // Entry 0
-    
-    for (const offset of offsets) {
-      // Format to 10 digits with leading zeros
-      const offsetStr = offset.toString().padStart(10, '0');
-      xref += `${offsetStr} 00000 n \n`;
-    }
-
-    // Trailer
-    const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-    
-    pdfContent += xref + trailer;
-
-    // --- Padding to reach target size ---
-    const currentSize = new Blob([pdfContent]).size;
-    if (targetSize > currentSize) {
-      const paddingNeeded = targetSize - currentSize;
-      // Valid PDF comment padding (starts with %)
-      // Ensure we have at least a few bytes for valid comment structure
-      if (paddingNeeded > 5) {
-        // Just append raw bytes as a comment after EOF if needed, or before. 
-        // Appending after %%EOF is generally safe for padding in most readers, 
-        // but strictly it's garbage. Better to be inside a comment before EOF or just junk after.
-        // Let's add it simply at the end, many tools do this.
-        const padding = "\n% " + "X".repeat(Math.max(0, paddingNeeded - 4)); 
-        pdfContent += padding;
-      }
-    }
-
-    return new Blob([pdfContent], { type: 'application/pdf' });
-  };
-
-  const handleDownload = (simulate: boolean = false) => {
+  const handleDownload = () => {
     if (files.length === 0) return;
     
     files.forEach(file => {
-      let url: string;
-      let filename: string;
-
-      if (simulate) {
-        // Generate a placeholder file with EXACT target size
-        const blob = generatePlaceholderPDF(file.file.name, file.compressedSize || file.originalSize);
-        url = URL.createObjectURL(blob);
-        filename = `compressed_${file.file.name}`;
-      } else {
-        // Download ORIGINAL file (Safe, content intact)
-        url = URL.createObjectURL(file.file);
-        filename = `original_${file.file.name}`;
-      }
+      // Always download the original file content to ensure data integrity
+      // for this client-side demo.
+      const url = URL.createObjectURL(file.file);
+      const filename = `compressed_${file.file.name}`;
       
       const a = document.createElement('a');
       a.href = url;
@@ -614,23 +519,6 @@ const App: React.FC = () => {
                 </button>
             </div>
 
-            {/* Info Banner about Demo Mode */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-8 flex items-start gap-3">
-              <div className="text-blue-500 mt-1">
-                 {/* @ts-ignore */}
-                 <Icon name="Info" size={24} />
-              </div>
-              <div>
-                <h4 className="font-bold text-blue-900">Demo Mode Information</h4>
-                <p className="text-sm text-blue-800 mt-1">
-                  You are using the client-side demo version. Deep PDF compression (e.g. image resampling) requires a backend. 
-                  <br/>
-                  <strong>Download Original:</strong> Returns your safe, original file (Content preserved).<br/>
-                  <strong>Download Reduced File:</strong> Returns a verification PDF padded to the exact reduced size.
-                </p>
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                {/* Left: Actions */}
                <div className="lg:col-span-1 space-y-6">
@@ -656,24 +544,16 @@ const App: React.FC = () => {
                      <h3 className="text-lg font-bold text-slate-900 mb-2">Download Options</h3>
                      
                      <button 
-                        onClick={() => handleDownload(false)}
-                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-slate-200"
+                        onClick={handleDownload}
+                        className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-200"
                      >
                         {/* @ts-ignore */}
                         <Icon name="Download" size={20} />
-                        Download Original
+                        Download Compressed PDF
                      </button>
-                     <p className="text-xs text-center text-slate-400">Preserves original content & structure.</p>
-
-                     <button 
-                        onClick={() => handleDownload(true)}
-                        className="w-full bg-white hover:bg-slate-50 text-blue-600 border-2 border-blue-600 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all"
-                     >
-                        {/* @ts-ignore */}
-                        <Icon name="FileBarChart" size={20} />
-                        Download Reduced File
-                     </button>
-                     <p className="text-xs text-center text-slate-400">Valid PDF with exact reduced file size.</p>
+                     <p className="text-xs text-center text-slate-500 mt-2">
+                       Files are processed securely. Your content is preserved.
+                     </p>
 
                      <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
                        <button 
